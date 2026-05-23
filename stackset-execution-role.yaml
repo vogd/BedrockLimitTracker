@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Bedrock Limits Tracker - StackSet Execution Role.
+  Deploy in EACH target account before creating the StackSet.
+  This role allows CloudFormation StackSets to create resources in this account.
+
+Parameters:
+  AdminAccountId:
+    Type: String
+    Description: Account ID of the admin account that manages the StackSet
+
+Resources:
+  StackSetExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AWSCloudFormationStackSetExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AdminAccountId}:role/AWSCloudFormationStackSetAdministrationRole'
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StackSetExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # IAM — create/manage the spoke role
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:PassRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                Resource:
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/BedrockLimitsTrackerSpokeRole'
+              # OAM — create/manage the observability link
+              - Effect: Allow
+                Action:
+                  - oam:CreateLink
+                  - oam:DeleteLink
+                  - oam:GetLink
+                  - oam:UpdateLink
+                  - oam:TagResource
+                Resource: '*'
+              # CloudWatch Link permission (required for OAM metric sharing)
+              - Effect: Allow
+                Action: cloudwatch:Link
+                Resource: '*'
+              # CloudFormation — manage stack resources
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                Resource: '*'
+
+Outputs:
+  ExecutionRoleArn:
+    Description: StackSet execution role ARN
+    Value: !GetAtt StackSetExecutionRole.Arn

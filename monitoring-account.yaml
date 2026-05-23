@@ -1,0 +1,271 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Bedrock Limits Tracker - Monitoring Account.
+  Deploys OAM Sink, Lambda for cross-account quota collection,
+  CloudWatch dashboard, and alarms for Bedrock service quotas.
+
+Parameters:
+  OrganizationId:
+    Type: String
+    Description: AWS Organization ID (o-xxxxxxxxxx) to allow all org accounts to link
+    Default: ''
+  SourceAccountIds:
+    Type: CommaDelimitedList
+    Description: Comma-separated list of source account IDs (if not using Organization)
+    Default: ''
+  ExecutionFrequencyMinutes:
+    Type: Number
+    Default: 60
+    MinValue: 5
+    MaxValue: 1440
+    Description: How often to collect quota data (minutes)
+  NotificationEmail:
+    Type: String
+    Default: ''
+    Description: Email for alarm notifications (leave empty to skip)
+  AlarmThresholdPercent:
+    Type: Number
+    Default: 80
+    MinValue: 50
+    MaxValue: 99
+    Description: Alarm when quota utilization exceeds this percentage
+  BedrockRegions:
+    Type: String
+    Default: 'us-east-1,us-west-2,eu-west-1,ap-northeast-1'
+    Description: Comma-separated list of regions to scan for Bedrock quotas
+
+Conditions:
+  UseOrganization: !Not [!Equals [!Ref OrganizationId, '']]
+  HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, '']]
+
+Resources:
+  # ============ OAM Sink (receives metrics from source accounts) ============
+  ObservabilitySink:
+    Type: AWS::Oam::Sink
+    Properties:
+      Name: BedrockLimitsTrackerSink
+      Policy: !If
+        - UseOrganization
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal: '*'
+              Resource: '*'
+              Action:
+                - oam:CreateLink
+                - oam:UpdateLink
+              Condition:
+                StringEquals:
+                  aws:PrincipalOrgID: !Ref OrganizationId
+                ForAllValues:StringEquals:
+                  oam:ResourceTypes:
+                    - AWS::CloudWatch::Metric
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                AWS: !Ref SourceAccountIds
+              Resource: '*'
+              Action:
+                - oam:CreateLink
+                - oam:UpdateLink
+              Condition:
+                ForAllValues:StringEquals:
+                  oam:ResourceTypes:
+                    - AWS::CloudWatch::Metric
+      Tags:
+        Project: BedrockLimitsTracker
+
+  # ============ SNS Topic for Alarms ============
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasNotificationEmail
+    Properties:
+      TopicName: BedrockLimitsAlarms
+      Tags:
+        - Key: Project
+          Value: BedrockLimitsTracker
+
+  AlarmSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasNotificationEmail
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  # ============ Lambda Execution Role ============
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: BedrockLimitsTrackerLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockLimitsTrackerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: 'arn:aws:iam::*:role/BedrockLimitsTrackerSpokeRole'
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                  - cloudwatch:PutDashboard
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/BedrockLimitsTracker/*'
+
+  # ============ SSM Parameter for account list ============
+  AccountListParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /BedrockLimitsTracker/SourceAccounts
+      Type: StringList
+      Value: !Join [',', !Ref SourceAccountIds]
+      Description: List of source account IDs to collect Bedrock quotas from
+
+  # ============ Lambda Function ============
+  QuotaCollectorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: bedrock_LimitsTracker
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 600
+      MemorySize: 256
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          SOURCE_ACCOUNTS_PARAM: /BedrockLimitsTracker/SourceAccounts
+          ALARM_THRESHOLD_PERCENT: !Ref AlarmThresholdPercent
+          BEDROCK_REGIONS: !Ref BedrockRegions
+      Code:
+        ZipFile: |
+          # Placeholder - deploy actual code from lambda/index.py
+          def handler(event, context):
+              return {"status": "deploy lambda/index.py via update"}
+
+  # ============ EventBridge Schedule ============
+  ScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: BedrockLimitsTrackerSchedule
+      Description: Triggers Bedrock quota collection
+      ScheduleExpression: !Sub 'rate(${ExecutionFrequencyMinutes} minutes)'
+      State: ENABLED
+      Targets:
+        - Id: QuotaCollectorTarget
+          Arn: !GetAtt QuotaCollectorFunction.Arn
+
+  SchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref QuotaCollectorFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ScheduleRule.Arn
+
+  # ============ CloudWatch Alarms (RAG-based) ============
+  # RED alarm: any account/region/model exceeds 90% utilization
+  RedStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: Bedrock-Limits-RED-Critical
+      AlarmDescription: 'CRITICAL: One or more Bedrock models exceed 90% quota utilization'
+      Namespace: BedrockLimits
+      MetricName: AccountRegionRAGStatus
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 2
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If
+        - HasNotificationEmail
+        - [!Ref AlarmTopic]
+        - []
+
+  # AMBER alarm: any account/region/model exceeds 70% utilization
+  AmberStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: Bedrock-Limits-AMBER-Warning
+      AlarmDescription: 'WARNING: One or more Bedrock models exceed 70% quota utilization'
+      Namespace: BedrockLimits
+      MetricName: AccountRegionRAGStatus
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If
+        - HasNotificationEmail
+        - [!Ref AlarmTopic]
+        - []
+
+  # TPM utilization alarm (per-model level)
+  TokensPerMinuteAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: Bedrock-TokensPerMinute-Critical
+      AlarmDescription: !Sub 'Bedrock tokens-per-minute utilization exceeds ${AlarmThresholdPercent}% for a model'
+      Namespace: BedrockLimits
+      MetricName: TokensPerMinuteUtilization
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: !Ref AlarmThresholdPercent
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If
+        - HasNotificationEmail
+        - [!Ref AlarmTopic]
+        - []
+
+  # RPM utilization alarm (per-model level)
+  RequestsPerMinuteAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: Bedrock-RequestsPerMinute-Critical
+      AlarmDescription: !Sub 'Bedrock requests-per-minute utilization exceeds ${AlarmThresholdPercent}% for a model'
+      Namespace: BedrockLimits
+      MetricName: RequestsPerMinuteUtilization
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: !Ref AlarmThresholdPercent
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If
+        - HasNotificationEmail
+        - [!Ref AlarmTopic]
+        - []
+
+Outputs:
+  SinkArn:
+    Description: OAM Sink ARN - use this in spoke template
+    Value: !GetAtt ObservabilitySink.Arn
+    Export:
+      Name: BedrockLimitsTracker-SinkArn
+
+  LambdaFunctionArn:
+    Description: Quota collector Lambda ARN
+    Value: !GetAtt QuotaCollectorFunction.Arn
+
+  AlarmTopicArn:
+    Condition: HasNotificationEmail
+    Description: SNS topic for alarm notifications
+    Value: !Ref AlarmTopic

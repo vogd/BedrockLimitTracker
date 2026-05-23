@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Bedrock Limits Tracker - StackSet Administration Role.
+  Deploy in the account that will CREATE the StackSet (admin/management account).
+
+Parameters:
+  TargetAccountIds:
+    Type: CommaDelimitedList
+    Description: Account IDs where spokes will be deployed (or use * for any)
+    Default: '*'
+
+Resources:
+  StackSetAdminRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AWSCloudFormationStackSetAdministrationRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AssumeExecutionRole
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: 'arn:aws:iam::*:role/AWSCloudFormationStackSetExecutionRole'
+
+Outputs:
+  AdminRoleArn:
+    Description: StackSet administration role ARN
+    Value: !GetAtt StackSetAdminRole.Arn

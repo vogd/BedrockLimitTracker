@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Bedrock Limits Tracker - Source Account (Spoke).
+  Deploys OAM Link to share metrics with monitoring account,
+  and IAM role for cross-account quota collection.
+
+Parameters:
+  SinkArn:
+    Type: String
+    Description: OAM Sink ARN from the monitoring account stack output
+  MonitoringAccountId:
+    Type: String
+    Description: AWS Account ID of the monitoring account
+  IsMonitoringAccount:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Set to true if deploying in the monitoring account itself (skips OAM Link)
+
+Conditions:
+  CreateOAMLink: !Equals [!Ref IsMonitoringAccount, 'false']
+
+Resources:
+  # ============ OAM Link (shares metrics to monitoring account) ============
+  ObservabilityLink:
+    Type: AWS::Oam::Link
+    Condition: CreateOAMLink
+    Properties:
+      LabelTemplate: '$AccountName'
+      ResourceTypes:
+        - AWS::CloudWatch::Metric
+      SinkIdentifier: !Ref SinkArn
+      Tags:
+        Project: BedrockLimitsTracker
+
+  # ============ Cross-Account Role (assumed by monitoring Lambda) ============
+  SpokeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: BedrockLimitsTrackerSpokeRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${MonitoringAccountId}:role/BedrockLimitsTrackerLambdaRole'
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockQuotaReadPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - servicequotas:ListServiceQuotas
+                  - servicequotas:GetServiceQuota
+                  - servicequotas:ListAWSDefaultServiceQuotas
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:ListFoundationModels
+                  - bedrock:ListInferenceProfiles
+                  - bedrock:ListProvisionedModelThroughputs
+                  - bedrock:GetFoundationModelAvailability
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:GetMetricStatistics
+                Resource: '*'
+
+Outputs:
+  SpokeRoleArn:
+    Description: Role ARN for cross-account access
+    Value: !GetAtt SpokeRole.Arn
+
+  LinkId:
+    Condition: CreateOAMLink
+    Description: OAM Link identifier
+    Value: !Ref ObservabilityLink
