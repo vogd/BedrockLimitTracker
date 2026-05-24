@@ -29,7 +29,7 @@ Amazon Bedrock applies per-model **Tokens Per Minute (TPM)** and **Requests Per 
 
 **Cross-region inference profiles** (SYSTEM_DEFINED) get **2x** the effective quota because they route across multiple regions.
 
-![Bedrock Limits Tracker Dashboard](BedrockLimitTracker.png)
+![Bedrock Limits Tracker Dashboard](BedrockLimitsTracker.png)
 
 ### Architecture
 
