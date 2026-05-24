@@ -29,6 +29,8 @@ Amazon Bedrock applies per-model **Tokens Per Minute (TPM)** and **Requests Per 
 
 **Cross-region inference profiles** (SYSTEM_DEFINED) get **2x** the effective quota because they route across multiple regions.
 
+![Bedrock Limits Tracker Dashboard](BedrockLimitTracker.png)
+
 ### Architecture
 
 > 📐 Architecture diagrams generated with `python3 generate_diagram.py` and `python3 generate_flow_diagrams.py`
@@ -291,14 +293,16 @@ AWS_PROFILE=<YOUR_PROFILE> aws lambda invoke \
 │  │   monitoring-account.yaml    │         │                                      │   │
 │  │                              │         │ Allows:                              │   │
 │  │ Trusted by:                  │         │   • servicequotas:List*/Get*         │   │
-│  │   lambda.amazonaws.com       │         │   • bedrock:ListFoundationModels     │   │
-│  │                              │         │   • bedrock:ListInferenceProfiles    │   │
-│  │ Allows:                      │         │   • cloudwatch:GetMetricData         │   │
-│  │   • sts:AssumeRole →        │         └─────────────────────────────────────┘   │
-│  │     *:SpokeRole              │                                                   │
-│  │   • cloudwatch:PutMetricData │         ┌─────────────────────────────────────┐   │
-│  │   • cloudwatch:PutDashboard  │   ④     │ OAM Link                             │   │
-│  │   • ssm:GetParameter         │◄────────│   → shares AWS/Bedrock metrics       │   │
+│  │   lambda.amazonaws.com       │         │   • bedrock:ListInferenceProfiles    │   │
+│  │                              │         │   • bedrock:ListProvisionedModel...  │   │
+│  │ Allows:                      │         │   • bedrock:ListFoundationModels     │   │
+│  │   • sts:AssumeRole →        │         │   • cloudwatch:GetMetricData         │   │
+│  │     *:SpokeRole              │         │   • cloudwatch:GetMetricStatistics   │   │
+│  │   • cloudwatch:PutMetricData │         └─────────────────────────────────────┘   │
+│  │   • cloudwatch:PutDashboard  │                                                   │
+│  │   • ssm:Get/PutParameter     │         ┌─────────────────────────────────────┐   │
+│  │   • s3:GetObject/PutObject   │   ④     │ OAM Link                             │   │
+│  │   • s3:ListBucket            │◄────────│   → shares AWS/Bedrock metrics       │   │
 │  └─────────────────────────────┘ metrics  │   → to Monitoring Account's Sink     │   │
 │                                   (free)  └─────────────────────────────────────┘   │
 │  ┌─────────────────────────────┐                                                    │
@@ -507,7 +511,5 @@ After running: real-time graphs update within 60s; per-account table updates on 
 ├── architecture.png              # AWS architecture diagram
 ├── deploy-time-flow.png          # StackSet role chain diagram
 ├── runtime-flow.png              # Lambda + OAM runtime diagram
-├── generate_diagram.py           # Regenerate architecture.png
-├── generate_flow_diagrams.py     # Regenerate flow diagrams
 └── README.md
 ```

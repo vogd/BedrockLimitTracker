@@ -126,6 +126,14 @@ Resources:
                   - ssm:GetParameter
                   - ssm:PutParameter
                 Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/BedrockLimitsTracker/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub 'arn:aws:s3:::bedrock-limits-cache-${AWS::AccountId}/*'
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub 'arn:aws:s3:::bedrock-limits-cache-${AWS::AccountId}'
 
   # ============ SSM Parameter for account list ============
   AccountListParameter:
