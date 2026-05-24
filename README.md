@@ -29,13 +29,13 @@ Amazon Bedrock applies per-model **Tokens Per Minute (TPM)** and **Requests Per 
 
 **Cross-region inference profiles** (SYSTEM_DEFINED) get **2x** the effective quota because they route across multiple regions.
 
-![Bedrock Limits Tracker Dashboard](BedrockLimitsTracker.png)
+![Bedrock Limits Tracker Dashboard](docs/BedrockLimitsTracker.png)
 
 ### Architecture
 
 > 📐 Architecture diagrams generated with `python3 generate_diagram.py` and `python3 generate_flow_diagrams.py`
 
-![Architecture](architecture.png)
+![Architecture](docs/architecture.png)
 
 ```
 Source Accounts (per region)              Monitoring Account
@@ -245,9 +245,9 @@ AWS_PROFILE=<YOUR_PROFILE> aws lambda invoke \
 
 ### Roles & Trust Architecture
 
-![Deploy-Time Flow](deploy-time-flow.png)
+![Deploy-Time Flow](docs/deploy-time-flow.png)
 
-![Runtime Flow](runtime-flow.png)
+![Runtime Flow](docs/runtime-flow.png)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
@@ -508,8 +508,10 @@ After running: real-time graphs update within 60s; per-account table updates on 
 ├── lambda/
 │   └── index.py                  # Quota collector + dashboard publisher
 ├── load_test.py                  # Generate Bedrock traffic for testing
-├── architecture.png              # AWS architecture diagram
-├── deploy-time-flow.png          # StackSet role chain diagram
-├── runtime-flow.png              # Lambda + OAM runtime diagram
+├── docs/
+│   ├── architecture.png          # AWS architecture diagram
+│   ├── deploy-time-flow.png      # StackSet role chain diagram
+│   ├── runtime-flow.png          # Lambda + OAM runtime diagram
+│   └── BedrockLimitsTracker.png  # Dashboard screenshot
 └── README.md
 ```
