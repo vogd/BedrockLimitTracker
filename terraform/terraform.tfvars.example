@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars and fill in your values
+region             = "us-east-1"
+source_account_ids = ["111111111111", "222222222222", "333333333333"]
+bedrock_regions    = ["us-east-1", "us-west-2"]
+organization_id    = ""  # Optional: "o-xxxxxxxxxx"
+notification_email = ""  # Optional: "team@example.com"
